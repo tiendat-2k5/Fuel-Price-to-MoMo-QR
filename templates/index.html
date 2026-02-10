@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Scan Demo</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            text-align: center;
+            background-color: #f4f4f9;
+            margin: 0;
+            padding: 20px;
+        }
+        
+        /* Khung chứa Camera và Ảnh chụp */
+        .camera-container {
+            position: relative;
+            max-width: 100%; /* Hoặc để 400px nếu muốn nhỏ gọn */
+            margin: 0 auto;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            background: #000;
+            min-height: 300px; /* Chiều cao tối thiểu */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        video { width: 100%; display: block; }
+        
+        /* Ảnh sau khi chụp (Mặc định ẩn) */
+        #captured-image { 
+            width: 100%; 
+            display: none; 
+        }
+
+        canvas { display: none; } 
+
+        .btn-group { margin-top: 20px; }
+        button {
+            padding: 12px 24px;
+            font-size: 16px;
+            margin: 5px;
+            border: none;
+            border-radius: 50px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        #btn-open { background-color: #007bff; color: white; }
+        #btn-capture { background-color: #28a745; color: white; }
+        /* Nút chụp lại (Mới thêm) */
+        #btn-retry { background-color: #ffc107; color: black; display: none; }
+        
+        button:disabled { background-color: #ccc; cursor: not-allowed; }
+
+        /* Khu vực hiển thị kết quả QR */
+        #result-area {
+            margin-top: 30px;
+            padding: 20px;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            display: none; 
+        }
+        .price-tag {
+            font-size: 24px;
+            font-weight: bold;
+            color: #d9534f;
+            margin-bottom: 15px;
+        }
+        #qr-code-img {
+            width: 200px;
+            height: 200px;
+            border: 1px solid #ddd;
+        }
+    </style>
+</head>
+<body>
+
+    <h2>Hệ thống Scan Xăng Dầu</h2>
+
+    <div class="camera-container">
+        <video id="video" autoplay playsinline></video>
+        <img id="captured-image" alt="Ảnh vừa chụp">
+        
+        <canvas id="canvas"></canvas>
+    </div>
+
+    <div class="btn-group">
+        <button id="btn-open">📸 Mở Camera</button>
+        <button id="btn-capture" disabled>Chụp & Gửi</button>
+        <button id="btn-retry">🔄 Chụp lại</button>
+    </div>
+
+    <div id="result-area">
+        <div id="status-text">Đang xử lý...</div>
+        <div class="price-tag" id="price-display"></div>
+        <img id="qr-code-img" src="" alt="QR Code kết quả" />
+    </div>
+
+    <script>
+        const video = document.getElementById('video');
+        const capturedImage = document.getElementById('captured-image');
+        const canvas = document.getElementById('canvas');
+        
+        const btnOpen = document.getElementById('btn-open');
+        const btnCapture = document.getElementById('btn-capture');
+        const btnRetry = document.getElementById('btn-retry');
+        
+        const resultArea = document.getElementById('result-area');
+        const statusText = document.getElementById('status-text');
+        const priceDisplay = document.getElementById('price-display');
+        const qrCodeImg = document.getElementById('qr-code-img');
+
+        let currentStream = null;
+
+        // Hàm tiện ích: Tắt Camera
+        function stopCamera() {
+            if (currentStream) {
+                currentStream.getTracks().forEach(track => track.stop());
+                video.srcObject = null;
+            }
+        }
+
+        // 1. Mở Camera
+        btnOpen.addEventListener('click', async () => {
+            try {
+                // Reset giao diện
+                capturedImage.style.display = 'none';
+                video.style.display = 'block';
+                resultArea.style.display = 'none';
+                btnRetry.style.display = 'none';
+                btnOpen.style.display = 'none'; // Ẩn nút mở đi cho gọn
+
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: "environment" } 
+                });
+                currentStream = stream;
+                video.srcObject = stream;
+                btnCapture.disabled = false;
+            } catch (err) {
+                alert("Không thể mở camera: " + err);
+                btnOpen.style.display = 'inline-block';
+            }
+        });
+
+        // 2. Chụp ảnh -> Dừng Cam -> Hiện ảnh -> Gửi Server
+        btnCapture.addEventListener('click', () => {
+            // A. Chụp ảnh từ Video sang Canvas
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(video, 0, 0);
+
+            // B. Hiển thị ảnh vừa chụp lên thẻ IMG ngay lập tức
+            const dataURL = canvas.toDataURL('image/jpeg');
+            capturedImage.src = dataURL;
+            
+            // C. Đổi giao diện: Ẩn Video, Hiện Ảnh
+            video.style.display = 'none';
+            capturedImage.style.display = 'block';
+
+            // D. NGẮT KẾT NỐI CAMERA (Quan trọng)
+            stopCamera();
+
+            // E. Cập nhật nút bấm
+            btnCapture.disabled = true; // Khóa nút chụp
+            btnCapture.style.display = 'none'; // Ẩn nút chụp
+            btnRetry.style.display = 'inline-block'; // Hiện nút chụp lại
+
+            // F. Gửi dữ liệu về Server
+            resultArea.style.display = 'block';
+            statusText.innerText = "Đang gửi ảnh và chờ QR...";
+            priceDisplay.innerText = "";
+            qrCodeImg.style.display = 'none';
+
+            canvas.toBlob((blob) => {
+                const formData = new FormData();
+                formData.append('image', blob, 'capture.jpg'); 
+
+                fetch('/scan', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if(data.status === 'success') {
+                        statusText.innerText = "Hoàn tất!";
+                        priceDisplay.innerText = data.price.toLocaleString() + " VND";
+                        qrCodeImg.src = "data:image/png;base64," + data.qr_image;
+                        qrCodeImg.style.display = 'inline-block';
+                    } else {
+                        statusText.innerText = "Lỗi Server: " + data.message;
+                    }
+                })
+                .catch(err => {
+                    console.error(err);
+                    statusText.innerText = "Lỗi kết nối!";
+                });
+
+            }, 'image/jpeg', 0.8);
+        });
+
+        // 3. Nút Chụp lại (Reset)
+        btnRetry.addEventListener('click', () => {
+            // Chỉ cần click lại vào nút Mở camera ẩn danh nghĩa
+            btnOpen.click();
+            btnCapture.style.display = 'inline-block';
+            btnRetry.style.display = 'none';
+        });
+
+    </script>
+</body>
+</html>
